@@ -1,6 +1,5 @@
-import { useRef, useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { io } from "socket.io-client";
-import { Socket } from "socket.io-client/debug";
 
 type GameData = {
   home: {
@@ -22,7 +21,7 @@ type GameData = {
   ball: {
     x: number;
     y: number;
-    isHidden: boolean;
+    is_hidden: boolean;
     speed: {
       x: number;
       y: number;
@@ -31,99 +30,148 @@ type GameData = {
   };
   score: { home: number; away: number };
   mode: string;
-  willReverse: boolean;
+  will_reverse: boolean;
 };
 
-const Game = () => {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [gameData, setGameData] = useState<GameData | null>(null);
-  const [socket, setSocket] = useState<any>({});
+enum Colors {
+  BG = "#22303c",
+  HOME_PADDLE = "#8899ac",
+  AWAY_PADDLE = "	#8899ac",
+  BALL = "#ffffff",
+}
+
+const PongGame: React.FC = () => {
+  const [gameState, setGameState] = useState<GameData | null>(null);
 
   useEffect(() => {
-    const socket = io("http://localhost:3001/game", {
+    if (!window.location.pathname.slice(1)) return console.log("add game id");
+    const socket = io("http://10.53.85.225:3001/game", {
       withCredentials: true,
     });
-    socket.emit("ingame");
-    socket.on("ingame", (serverdata) => {
-      setGameData(serverdata);
+
+    socket.on(window.location.pathname.slice(1), (newGameState: GameData) => {
+      setGameState(newGameState);
     });
-    setSocket(socket);
-    window.addEventListener("keydown", handleKeyDown);
+
+    socket.emit("ingame", {
+      action: "JOIN",
+      game_id: window.location.pathname.slice(1),
+    });
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "w") {
+        socket.emit("ingame", {
+          action: "UP",
+          game_id: window.location.pathname.slice(1),
+        });
+      }
+
+      if (event.key === "s") {
+        socket.emit("ingame", {
+          action: "DOWN",
+          game_id: window.location.pathname.slice(1),
+        });
+      }
+    };
+
+    window.addEventListener("keypress", handleKeyDown);
 
     return () => {
-      window.removeEventListener("keydown", handleKeyDown);
+      socket.disconnect();
+      window.removeEventListener("keypress", handleKeyDown);
     };
   }, []);
 
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+
   useEffect(() => {
-    if (!gameData) return;
+    if (!gameState) return;
     const canvas = canvasRef.current;
-    if (!canvas || !gameData.home || !gameData.away || !gameData.ball) return;
+    const ctx = canvas?.getContext("2d");
 
-    const context = canvas.getContext("2d");
-    if (!context) return;
+    if (ctx) {
+      // Clear the canvas
+      ctx.clearRect(0, 0, canvas?.width || 0, canvas?.height || 0);
 
-    context.clearRect(0, 0, canvas.width, canvas.height);
+      // Draw the paddles and ball
+      drawPaddle(ctx, gameState, canvas, true);
+      drawPaddle(ctx, gameState, canvas, false);
+      drawBall(ctx, gameState.ball, canvas);
+    }
+  }, [gameState]);
 
-    // Draw paddles
-    context.fillStyle = "red";
-    context.fillRect(
-      (gameData.home.x / 100) * 1280, // x pos
-      (gameData.home.y / 100) * 720, // y pos
-      (gameData.home.width / 100) * 1280, // width
-      (gameData.home.height / 100) * 720 // height
+  const drawPaddle = (
+    ctx: CanvasRenderingContext2D,
+    gameState: GameData,
+    canvas: any,
+    isHome: boolean
+  ) => {
+    // Apply fade-in/fade-out effect when will_reverse is true
+    const opacity = gameState?.will_reverse ? 0.1 : 1;
+    const paddle = isHome ? gameState.home : gameState.away;
+
+    ctx.fillStyle = isHome ? Colors.HOME_PADDLE : Colors.AWAY_PADDLE;
+    ctx.globalAlpha = opacity;
+
+    ctx.fillRect(
+      (paddle.x / 100) * canvas.width,
+      (paddle.y / 100) * canvas.height,
+      (paddle.width / 100) * canvas.width,
+      (paddle.height / 100) * canvas.height
     );
 
-    context.fillStyle = "purple";
-    context.fillRect(
-      (gameData.away.x / 100) * 1280, // x pos
-      (gameData.away.y / 100) * 720, // y pos
-      (gameData.away.width / 100) * 1280, // width
-      (gameData.away.height / 100) * 720 // height
-    );
-
-    // Draw the ball
-    context.beginPath();
-    context.arc(
-      (gameData.ball.x / 100) * 1280,
-      (gameData.ball.y / 100) * 720,
-      gameData.ball.radius,
-      0,
-      2 * Math.PI
-    );
-    context.fillStyle = "green";
-    context.fill();
-    context.closePath();
-  }, [gameData]);
-
-  // Handle keyboard input for the player's paddle
-  const handleKeyDown = (event: KeyboardEvent) => {
-    if (event.key == "w")
-      socket.emit("ingame", {
-        action: "UP",
-      });
-    else if (event.key == "s")
-      socket.emit("ingame", {
-        action: "DOWN",
-      });
+    // Reset global alpha after drawing
+    ctx.globalAlpha = 1;
   };
+
+  const drawBall = (
+    ctx: CanvasRenderingContext2D,
+    ball: GameData["ball"],
+    canvas: any
+  ) => {
+    if (!ball.is_hidden) {
+      ctx.fillStyle = Colors.BALL;
+      ctx.beginPath();
+      ctx.arc(
+        (ball.x / 100) * canvas.width,
+        (ball.y / 100) * canvas.height,
+        (ball.radius / 100) * Math.min(canvas.width, canvas.height),
+        0,
+        2 * Math.PI
+      );
+      ctx.fill();
+      ctx.closePath();
+    }
+  };
+
   return (
     <div
       style={{
         display: "flex",
+        flexDirection: "column",
+        position: "relative",
         justifyContent: "center",
         alignItems: "center",
-        position: "relative",
+        width: "100%",
+        height: "100%",
       }}
     >
+      <div
+        style={{
+          fontSize: "32px",
+          fontWeight: "900",
+        }}
+      >
+        {`${gameState?.away.display_name} ${gameState?.score.away} - ${gameState?.score.home} ${gameState?.home.display_name}`}
+      </div>
       <canvas
         ref={canvasRef}
         width={1280}
         height={720}
-        style={{ border: "1px solid black", background: "lightblue" }}
-      />
+        style={{ backgroundColor: Colors.BG }}
+      ></canvas>
     </div>
   );
 };
 
-export default Game;
+export default PongGame;

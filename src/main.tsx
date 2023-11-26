@@ -1,5 +1,4 @@
 import ReactDOM from "react-dom/client";
-import "./index.css";
-import App from "./App.tsx";
+import PongGame from "./Game.tsx";
 
-ReactDOM.createRoot(document.getElementById("root")!).render(<App />);
+ReactDOM.createRoot(document.getElementById("root")!).render(<PongGame />);
